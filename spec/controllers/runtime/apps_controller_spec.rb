@@ -11,21 +11,6 @@ module VCAP::CloudController
     include_examples "creating and updating", path: "/v2/apps", model: App,
                      required_attributes: %w(name space_guid),
                      unique_attributes: %w(name space_guid)
-    include_examples "deleting a valid object", path: "/v2/apps", model: App, one_to_many_collection_ids: {
-      :service_bindings => lambda { |app|
-        service_instance = ManagedServiceInstance.make(
-          :space => app.space
-        )
-        ServiceBinding.make(
-          :app => app,
-          :service_instance => service_instance
-        )
-      },
-      :events => lambda { |app|
-        AppEvent.make(:app => app)
-      }
-    },
-      one_to_many_collection_ids_without_url: {}
 
     include_examples "collection operations", path: "/v2/apps", model: App,
       one_to_many_collection_ids: {
