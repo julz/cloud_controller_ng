@@ -602,6 +602,62 @@ module VCAP::CloudController
       end
     end
 
+    describe "restaging" do
+      let(:app_obj) do
+        AppFactory.make(:package_hash => "abc", :state => state,
+                        :droplet_hash => "def", :package_state => "STAGED",
+                        :instances => 1)
+      end
+
+      context "when the app is STOPPED, and the package_state is STAGED", non_transactional: true do
+        let(:state) { "STOPPED" }
+
+        it "restages the app, even though package_state is STAGED" do
+          received_app = nil
+          AppObserver.should_receive(:stage_app) do |app|
+            received_app = app
+            AppStagerTask::Response.new({})
+          end
+
+          put "/v2/apps/#{app_obj.guid}?restage=true", Yajl::Encoder.encode(:state => "STARTED"), json_headers(admin_headers)
+          last_response.status.should == 201
+
+          app_obj.reload
+          app_obj.should be_pending
+          received_app.should_not be_nil
+          received_app.id.should == app_obj.id
+        end
+      end
+
+      context "when the app is STOPPED, but a restart is not requested", non_transactional: true do
+        let(:state) { "STOPPED" }
+
+        it "does not restage the app" do
+          AppObserver.should_not_receive(:stage_app)
+
+          put "/v2/apps/#{app_obj.guid}?restage=true", Yajl::Encoder.encode(:instances => 2), json_headers(admin_headers)
+          last_response.status.should == 201
+
+          app_obj.reload
+          app_obj.should_not be_pending
+        end
+      end
+
+      context "when the app is STARTED, and the package_state is STAGED", non_transactional: true do
+        let(:state) { "STARTED" }
+
+        it "does not restage the app" do
+          AppObserver.should_not_receive(:stage_app)
+
+          put "/v2/apps/#{app_obj.guid}?restage=true", Yajl::Encoder.encode(:state => "STARTED"), json_headers(admin_headers)
+          last_response.status.should == 201
+
+          app_obj.reload
+          app_obj.should_not be_pending
+        end
+      end
+    end
+
     describe "on route change" do
       let(:space) { Space.make }
       let(:domain) do

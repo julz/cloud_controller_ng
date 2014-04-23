@@ -72,7 +72,29 @@ module VCAP::CloudController
       [ HTTP::NO_CONTENT, nil ]
     end
 
+    def update(guid)
+      app = find_for_update(guid)
+
+      model.db.transaction(savepoint: true) do
+        app.lock!
+        app.mark_for_restaging if wants_restage? && allow_restage?(app)
+        app.update_from_hash(request_attrs)
+      end
+
+      after_update(app)
+
+      [HTTP::CREATED, object_renderer.render_json(self.class, app, @opts)]
+    end
+
     private
+
+    def allow_restage?(app)
+      !app.started? && request_attrs["state"] == "STARTED"
+    end
+
+    def wants_restage?
+      params["restage"] == "true"
+    end
 
     def after_create(app)
       record_app_create_value = @app_event_repository.record_app_create(
