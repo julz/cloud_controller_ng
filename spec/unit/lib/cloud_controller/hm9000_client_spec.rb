@@ -62,22 +62,45 @@ module VCAP::CloudController
     subject(:hm9000_client) { VCAP::CloudController::HM9000Client.new(message_bus, hm9000_config) }
 
     before do
-      allow(message_bus).to receive(:synchronous_request) do |subject, data, options|
-        next unless subject == "app.state"
-        expect(options).to include(timeout: 2)
+      allow(message_bus).to receive(:synchronous_request) do |subject, message, options|
+        case subject
+        when "app.state"
+          expect(options).to include(timeout: 2)
 
-        if data[:droplet] == app0.guid && data[:version] == app0.version
-          if !app0_request_should_fail
-            [app_0_api_response]
+          if message[:droplet] == app0.guid && message[:version] == app0.version
+            if !app0_request_should_fail
+              [app_0_api_response]
+            else
+              [{}]
+            end
+          elsif message[:droplet] == app1.guid && message[:version] == app1.version
+            [app_1_api_response]
+          elsif message[:droplet] == app2.guid && message[:version] == app2.version
+            [app_2_api_response]
           else
             [{}]
           end
-        elsif data[:droplet] == app1.guid && data[:version] == app1.version
-          [app_1_api_response]
-        elsif data[:droplet] == app2.guid && data[:version] == app2.version
-          [app_2_api_response]
-        else
-          [{}]
+        when "app.state.bulk"
+          expect(options).to include(timeout: 5)
+
+          result = {}
+          message.each do |app_request|
+            result[app_request[:droplet]] =
+              if app_request[:droplet] == app0.guid && app_request[:version] == app0.version
+                if !app0_request_should_fail
+                  app_0_api_response
+                else
+                  {}
+                end
+              elsif app_request[:droplet] == app1.guid && app_request[:version] == app1.version
+                app_1_api_response
+              elsif app_request[:droplet] == app2.guid && app_request[:version] == app2.version
+                app_2_api_response
+              else
+                {}
+              end
+          end
+          [result]
         end
       end
     end
