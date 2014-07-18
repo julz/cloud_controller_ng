@@ -45,6 +45,7 @@ module VCAP::CloudController
     let(:app0) { AppFactory.make(instances: app0instances) }
     let(:app1) { AppFactory.make(instances: 1) }
     let(:app2) { AppFactory.make(instances: 1) }
+    let(:app_hm_doesnt_know_about) { AppFactory.make(instances: 1) }
     let(:app0_request_should_fail) { false }
 
     let(:hm9000_config) {
@@ -58,6 +59,7 @@ module VCAP::CloudController
     let(:app_2_api_response) { generate_hm_api_response(app2, [{ index: 0, state: "RUNNING" }]) }
 
     let(:message_bus) { double }
+    let(:max_app_bulk_size) { 50 }
 
     subject(:hm9000_client) { VCAP::CloudController::HM9000Client.new(message_bus, hm9000_config) }
 
@@ -82,9 +84,11 @@ module VCAP::CloudController
           end
         when "app.state.bulk"
           expect(options).to include(timeout: 5)
+          expect(message.size).to be <= max_app_bulk_size
 
           result = {}
           message.each do |app_request|
+            next if app_request[:droplet] == app_hm_doesnt_know_about
             result[app_request[:droplet]] =
               if app_request[:droplet] == app0.guid && app_request[:version] == app0.version
                 if !app0_request_should_fail
@@ -105,7 +109,7 @@ module VCAP::CloudController
       end
     end
 
-    describe "healthy_instances" do
+    describe "healthy_instances_bulk" do
       context "single app" do
         context "with a single desired and running instance" do
           it "should return the correct number of healthy instances" do
@@ -116,8 +120,8 @@ module VCAP::CloudController
         context "when the request fails" do
           let(:app0_request_should_fail) { true }
 
-          it "should return 0" do
-            expect(hm9000_client.healthy_instances(app0)).to eq(0)
+          it "should return -1" do
+            expect(hm9000_client.healthy_instances(app0)).to eq(-1)
           end
         end
 
@@ -168,8 +172,36 @@ module VCAP::CloudController
         context "when, mysteriously, a response is received that is not empty but is missing instance heartbeats" do
           let(:app_0_api_response) { {droplet: app0.guid, version: app0.version } }
 
-          it "should return 0" do
-            expect(hm9000_client.healthy_instances(app0)).to eq(0)
+          it "should return ERROR_SENTINEL_VALUE" do
+            expect(hm9000_client.healthy_instances(app0)).to eq(-1)
+          end
+        end
+      end
+
+      context "multiple apps" do
+        context "when both apps exist" do
+          it "should return the correct number of instances for both apps" do
+            expect(hm9000_client.healthy_instances_bulk([app0, app1])).to eq({ app0.guid => 1, app1.guid => 0 })
+          end
+        end
+
+        context "when one of the apps is not found" do
+          let(:app_1_api_response) do {} end
+
+          it "returns results for the app that does exist" do
+            expect(hm9000_client.healthy_instances_bulk([app0, app_hm_doesnt_know_about])).to include({ app0.guid => 1 })
+          end
+
+          it "returns -1 for apps which were not returned" do
+            expect(hm9000_client.healthy_instances_bulk([app0, app_hm_doesnt_know_about])).to include({ app_hm_doesnt_know_about.guid => -1 })
+          end
+        end
+
+        describe "splitting requests to avoid NATS message limits" do
+          it "makes multiple small requests if more than 50 apps are requested" do
+            apps = ( 1..105 ).map { AppFactory.make }
+            expect(message_bus).to receive(:synchronous_request).at_least(3).times
+            hm9000_client.healthy_instances_bulk(apps)
           end
         end
       end

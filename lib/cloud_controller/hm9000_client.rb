@@ -2,108 +2,64 @@ require 'set'
 
 module VCAP::CloudController
   class HM9000Client
+    MAX_APPS_PER_BULK_REQUEST = 50
+    ERROR_SENTINEL_VALUE = -1
+
     def initialize(message_bus, config)
       @message_bus = message_bus
       @config = config
     end
 
-    # def healthy_instances(app)
-    #   healthy_instances_bulk([app])[app.guid] || 0
-    # end
-
     def healthy_instances(app)
-      response = make_request(app)
-
-      if response.nil? || response["instance_heartbeats"].nil?
-        return 0
-      end
-
-      running_indices = Set.new
-      response["instance_heartbeats"].each do |instance|
-        if instance["index"] < app.instances && (instance["state"] == "RUNNING" || instance["state"] == "STARTING")
-          running_indices.add(instance["index"])
-        end
-      end
-
-      return running_indices.length
+      healthy_instances_bulk([app])[app.guid]
     end
 
     def healthy_instances_bulk(apps)
-      apps.inject({}) do |instances, app|
-        instances.update(app => healthy_instances(app))
+      return {} if apps.empty?
+      response = make_multiple_bulk_requests(apps, MAX_APPS_PER_BULK_REQUEST)
+
+      apps.each_with_object({}) do |app, result|
+        instance = response[app.guid] || {}
+        result[app.guid] = instance["instance_heartbeats"] ? count_heartbeats(app, instance["instance_heartbeats"]) : ERROR_SENTINEL_VALUE
       end
     end
 
-    # def healthy_instances_bulk(apps)
-    #   return {} if apps.empty?
-    #   response = make_bulk_request(apps) || {}
-    #
-    #   data = {}
-    #   apps.each do |app|
-    #     instance = response[app.guid] || {}
-    #
-    #     count = 0
-    #     if instance["instance_heartbeats"]
-    #       running_indices = Set.new
-    #       instance["instance_heartbeats"].each do |heartbeats|
-    #         if heartbeats["index"] < app.instances && (heartbeats["state"] == "RUNNING" || heartbeats["state"] == "STARTING")
-    #           running_indices.add(heartbeats["index"])
-    #         end
-    #       end
-    #       count = running_indices.length
-    #     end
-    #     data[app.guid] = count
-    #   end
-    #
-    #   data
-    # end
-
     def find_crashes(app)
       response = make_request(app)
-      if !response
-        return []
-      end
+      return [] unless response
 
-      crashing_instances = []
-      response["instance_heartbeats"].each do |instance|
+      response["instance_heartbeats"].each_with_object([]) do |instance, result|
         if instance["state"] == "CRASHED"
-          crashing_instances << {"instance" => instance["instance"], "since" => instance["state_timestamp"]}
+          result << {"instance" => instance["instance"], "since" => instance["state_timestamp"]}
         end
       end
-
-      crashing_instances
     end
 
     def find_flapping_indices(app)
       response = make_request(app)
-      if !response
-        return []
-      end
+      return [] unless response
 
-      flapping_indices = []
-
-      response["crash_counts"].each do |crash_count|
+      response["crash_counts"].each_with_object([]) do |crash_count, result|
         if crash_count["crash_count"] >= @config[:flapping_crash_count_threshold]
-          flapping_indices << {"index" => crash_count["instance_index"], "since" => crash_count["created_at"]}
+          result << {"index" => crash_count["instance_index"], "since" => crash_count["created_at"]}
         end
       end
-
-      flapping_indices
     end
 
     private
 
-    def make_request(app)
-      message = { droplet: app.guid, version: app.version }
-      logger.info("requesting app.state", message)
-      responses = @message_bus.synchronous_request("app.state", message, { timeout: 2 })
-      logger.info("received app.state response", { message: message, responses: responses })
-      return if responses.empty?
+    def count_heartbeats(app, instance_heartbeats)
+      instance_heartbeats.each_with_object(Set.new) do |heartbeats, result|
+        if heartbeats["index"] < app.instances && (heartbeats["state"] == "RUNNING" || heartbeats["state"] == "STARTING")
+          result.add(heartbeats["index"])
+        end
+      end.length
+    end
 
-      response = responses.first
-      return if response.empty?
-
-      response
+    def make_multiple_bulk_requests(apps, apps_per_request)
+      apps.each_slice(apps_per_request).reduce({}) do |result, slice|
+        result.merge(make_bulk_request(slice) || {})
+      end
     end
 
     def make_bulk_request(apps)
@@ -114,6 +70,14 @@ module VCAP::CloudController
       logger.info("requesting app.state.bulk", message: message)
       responses = @message_bus.synchronous_request("app.state.bulk", message, { timeout: 5 })
       logger.info("received app.state.bulk response", { message: message, responses: responses })
+      responses.first
+    end
+
+    def make_request(app)
+      message = { droplet: app.guid, version: app.version }
+      logger.info("requesting app.state", message)
+      responses = @message_bus.synchronous_request("app.state", message, { timeout: 2 })
+      logger.info("received app.state response", { message: message, responses: responses })
       return if responses.empty?
 
       response = responses.first
