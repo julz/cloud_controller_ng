@@ -7,7 +7,7 @@ resource "Feature Flags (experimental)", :type => :api do
   authenticated_request
 
   shared_context "name_parameter" do
-    parameter :name, "The name of the feature flag", valid_values: ["user_org_creation", "app_bits_upload", "private_domain_creation"]
+    parameter :name, "The name of the feature flag", valid_values: ["user_org_creation", "app_bits_upload", "private_domain_creation", "app_scaling"]
   end
 
   shared_context "updatable_fields" do
@@ -43,6 +43,15 @@ resource "Feature Flags (experimental)", :type => :api do
         })
       expect(parsed_response).to include(
         {
+          'name'          => 'app_scaling',
+          'default_value' => true,
+          'enabled'       => true,
+          'overridden'    => false,
+          'error_message' => nil,
+          'url'           => '/v2/config/feature_flags/app_scaling'
+        })
+      expect(parsed_response).to include(
+        {
           'name'          => 'private_domain_creation',
           'default_value' => true,
           'enabled'       => false,
@@ -67,6 +76,24 @@ resource "Feature Flags (experimental)", :type => :api do
           'overridden'    => false,
           'error_message' => nil,
           'url'           => '/v2/config/feature_flags/app_bits_upload'
+        })
+    end
+  end
+
+  get "/v2/config/feature_flags/app_scaling" do
+    example "Get the App Scaling feature flag" do
+      explanation "When disabled, only admin users can perform scaling operations (i.e. change memory, disk or instances)"
+      client.get "/v2/config/feature_flags/app_bits_upload", {}, headers
+
+      expect(status).to eq(200)
+      expect(parsed_response).to eq(
+        {
+          'name'          => 'app_scaling',
+          'default_value' => true,
+          'enabled'       => true,
+          'overridden'    => false,
+          'error_message' => nil,
+          'url'           => '/v2/config/feature_flags/app_scaling'
         })
     end
   end
