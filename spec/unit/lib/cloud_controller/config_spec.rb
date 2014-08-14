@@ -46,6 +46,10 @@ module VCAP::CloudController
         it "sets a default value for database" do
           expect(config[:db][:database]).to eq(ENV["DB_CONNECTION_STRING"])
         end
+
+        it "sets a default value for default_locale" do
+          expect(config[:default_locale]).to eq("en_US")
+        end
       end
 
       context "when config values are provided" do
