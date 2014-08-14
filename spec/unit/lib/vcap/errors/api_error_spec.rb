@@ -21,11 +21,10 @@ module VCAP::Errors
     let(:messagePartialTranslatedDetails) { create_details(messagePartialTranslated) }
     let(:messageNotTranslatedDetails) { create_details(messageNotTranslated) }
 
-    I18n.default_locale = :en_US
-    I18n::Backend::Simple.send(:include, I18n::Backend::Fallbacks)
-    I18n.load_path = Dir[File.expand_path("../../../../fixtures/i18n/*.yml", File.dirname(__FILE__))]
-
     before do
+      I18n.enforce_available_locales = true # this will be the default in a future version, so test that we cope with it
+      ApiError.setup_i18n(Dir[File.expand_path("../../../../../fixtures/i18n/*.yml", __FILE__)], "en_US")
+
       allow(Details).to receive("new").with(messageServiceInvalid).and_return(messageServiceInvalidDetails)
       allow(Details).to receive("new").with(messagePartialTranslated).and_return(messagePartialTranslatedDetails)
       allow(Details).to receive("new").with(messageNotTranslated).and_return(messageNotTranslatedDetails)
