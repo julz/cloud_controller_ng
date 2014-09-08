@@ -51,7 +51,6 @@ module VCAP::CloudController
             state:                 { type: "string" },
             event_guids:           { type: "[string]" },
             route_guids:           { type: "[string]" },
-            service_binding_guids: { type: "[string]" },
             space_guid:            { type: "string" },
             stack_guid:            { type: "string" },
             docker_image:          { type: "string" },
@@ -64,7 +63,7 @@ module VCAP::CloudController
         expect(described_class).to have_nested_routes(
           {
             events:           [:get, :put, :delete],
-            service_bindings: [:get, :put, :delete],
+            service_bindings: :get,
             routes:           [:get, :put, :delete],
           })
       end

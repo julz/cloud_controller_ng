@@ -19,7 +19,7 @@ module VCAP::CloudController
       to_one     :stack,               :optional_in => :create
 
       to_many    :events,              :link_only => true
-      to_many    :service_bindings,    :exclude_in => :create
+      to_many    :service_bindings,    :exclude_in => [:create, :update], route_for: :get
       to_many    :routes
     end
 
